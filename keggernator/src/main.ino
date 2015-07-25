@@ -1,18 +1,22 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <assert.h>
+#include "./util.h"
 
 #define ONE_WIRE_BUS 10
-#define RELAY_PIN 4
+#define RELAY_PIN 6
 #define FAN_PIN 9
 
 #define POLLING_INTERVAL 3000
+#define XBEE_BUFFER_SIZE 100
 
 #define INTERNAL_TEMP_INDEX 0
 #define TOWER_TEMP_INDEX 1
 #define COMPRESSOR_DELAY 240000 // Milliseconds
 
 #define TARGET_TEMP 40.0
+
+#define CONTROLLER_ADDRESS 0x40C1BC59
 
 #define DEBUG
 // #define FAKE_TEMPS
@@ -42,6 +46,7 @@ void setup(void) {
   initializeRelay();
   initializeSensors();
   initializeFan();
+  initMessaging();
 }
 
 void loop(void) { 
@@ -50,6 +55,9 @@ void loop(void) {
   long currentTime = millis();
   float internalTemp = readInternalTemp();
   float towerTemp = readTowerTemp();
+
+  reportTemperature("internal", internalTemp);
+  reportTemperature("tower", towerTemp);
 
   if ((internalTemp > 0) && (towerTemp > 0)) {
     Serial.printf("Internal temperature is: %3.2f\n", internalTemp);
@@ -87,9 +95,12 @@ void setKeggeratorState(int newKeggeratorState) {
     currentKeggeratorState = newKeggeratorState;
 
     if (newKeggeratorState == HIGH) {
+      reportEvent("power", "on");
       Serial.println("Turning keggerator ON");
       digitalWrite(RELAY_PIN, newKeggeratorState);
     } else if (newKeggeratorState == LOW) {
+
+      reportEvent("power", "off");
       Serial.println("Turning keggerator OFF");
       digitalWrite(RELAY_PIN, newKeggeratorState);
 
@@ -146,4 +157,16 @@ float readInternalTemp() {
 
 float readTowerTemp() {
   return sensors.getTempFByIndex(TOWER_TEMP_INDEX);
+}
+
+void reportTemperature(String name, float temp) {
+  char buffer[XBEE_BUFFER_SIZE];
+  sprintf(buffer, "{\"type\":\"metric\", \"name\":\"%s\", \"value\":\"%f\"}", name.c_str(), temp);
+  sendMessage(buffer, CONTROLLER_ADDRESS);
+}
+
+void reportEvent(String name, String value) {
+  char buffer[XBEE_BUFFER_SIZE];
+  sprintf(buffer, "{\"type\":\"event\", \"name\":\"%s\", \"value\":\"%s\"}", name.c_str(), value.c_str());
+  sendMessage(buffer, CONTROLLER_ADDRESS);
 }
